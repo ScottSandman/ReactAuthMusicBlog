@@ -4,12 +4,14 @@ const db = require("mysql2/promise");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const bodyParser = require("body-parser");
+const cors = require("cors");
 
 const PORT = 4000;
 const app = express();
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors({ credentials: true, origin: "http://localhost:3000" }));
 
 const pool = db.createPool({
   host: process.env.DB_HOST,
@@ -38,17 +40,23 @@ app.post("/user", async (request, response) => {
 
 app.post("/users/login", async (request, response) => {
   try {
+    console.log(request.body);
     const conn = await pool.getConnection();
     const result = await conn.query(
       `SELECT * FROM musicblog.users WHERE username = '${request.body.username}';`
     );
+    // console.log(result);
+    // console.log(result[0][0]);
+    // console.log(result[0][0].username);
     if (result[0][0] === undefined) {
       response.status(404).send("Username does not exist");
     }
     if (await bcrypt.compare(request.body.password, result[0][0].password)) {
       const userInfo = { username: request.body.username };
-      const accessToken = jwt.sign(userInfo, authToken);
-      response.status(202).cookie("AccessToken", accessToken).redirect("/");
+      const accessToken = jwt.sign(userInfo, process.env.ACCESS_TOKEN_SECRET);
+      console.log(userInfo, accessToken);
+
+      response.status(202).cookie("AccessToken", accessToken).send(userInfo);
       // response.status(202).send();
     }
   } catch (error) {
@@ -62,11 +70,24 @@ app.post("/blogPosts", authorizeUser, async (request, response) => {
     console.log(request.body);
     const con = await pool.getConnection();
     const userID = await con.query(
-      `SELECT id FROM travelblog.users WHERE username = '${request.user.username}'`
+      `SELECT id FROM musicblog.users WHERE username = '${request.user.username}'`
     );
     // console.log(userID[0][0].id);
     const result = await con.query(
-      `INSERT INTO travelblog.blogposts (userId, blogdate, title, blog) VALUES (${userID[0][0].id}, CURDATE(), '${request.body.title}','${request.body.blog}');`
+      `INSERT INTO musicblog.blog (author_Id, date, title, post) VALUES (${userID[0][0].id}, CURDATE(), '${request.body.title}','${request.body.post}');`
+    );
+    response.status(201).send(result);
+  } catch (error) {
+    console.log(error);
+    response.status(500).send(error);
+  }
+});
+
+app.get("/blogs", async (request, response) => {
+  try {
+    const con = await pool.getConnection();
+    const result = await con.query(
+      `SELECT musicblog.blog.id, title, date, author_id, post, username FROM musicblog.blog JOIN musicblog.users ON (musicblog.blog.author_id = musicblog.users.id)`
     );
     response.status(201).send(result);
   } catch (error) {
@@ -78,12 +99,12 @@ app.post("/blogPosts", authorizeUser, async (request, response) => {
 app.get("/blogPosts", authorizeUser, async (request, response) => {
   try {
     const userID = request.user.id;
-    const testQuery = `SELECT * FROM travelblog.blogposts WHERE userId = ${userID};`;
+    const testQuery = `SELECT * FROM musicblog.blog WHERE userId = ${userID};`;
     console.log(testQuery);
     const con = await pool.getConnection();
     const authorName = request.user.username;
     const userInfo = await con.query(
-      `SELECT * FROM travelblog.blogposts WHERE userId = ${userID};`
+      `SELECT * FROM musicblog.blog WHERE userId = ${userID};`
     );
     response.status(200).send({ author: authorName, data: userInfo });
     await con.release();
